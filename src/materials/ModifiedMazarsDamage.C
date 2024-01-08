@@ -24,7 +24,7 @@
 registerMooseObject("BlackBearApp", ModifiedMazarsDamage);
 
 InputParameters
-ModifieMazarsDamage::validParams()
+ModifiedMazarsDamage::validParams()
 {
   InputParameters params = ScalarDamageBase::validParams();
   params.addClassDescription("Mazars scalar damage model");
@@ -43,7 +43,7 @@ ModifieMazarsDamage::validParams()
   return params;
 }
 
-ModifieMazarsDamage::ModifieMazarsDamage(const InputParameters & parameters)
+ModifiedMazarsDamage::ModifiedMazarsDamage(const InputParameters & parameters)
   : ScalarDamageBase(parameters),
     GuaranteeConsumer(this),
     _tensile_strength(coupledValue("tensile_strength")),
@@ -65,21 +65,21 @@ ModifieMazarsDamage::ModifieMazarsDamage(const InputParameters & parameters)
 }
 
 void
-ModifieMazarsDamage::initQpStatefulProperties()
+ModifiedMazarsDamage::initQpStatefulProperties()
 {
   ScalarDamageBase::initQpStatefulProperties();
   _kappa[_qp] = 0.0;
 }
 
 void
-ModifieMazarsDamage::initialSetup()
+ModifiedMazarsDamage::initialSetup()
 {
   if (!hasGuaranteedMaterialProperty(_elasticity_tensor_name, Guarantee::ISOTROPIC))
     mooseError("MazarsDamage requires that the elasticity tensor be guaranteed isotropic");
 }
 
 void
-ModifieMazarsDamage::updateQpDamageIndex()
+ModifiedMazarsDamage::updateQpDamageIndex()
 {
   _stress[_qp].symmetricEigenvalues(_eigval);
   for (unsigned int i = 0; i < 3; ++i)
