@@ -350,6 +350,7 @@ private:
   void setIntnlValuesV(const std::vector<Real> & trial_stress_params,
                        const std::vector<Real> & current_stress_params,
                        const std::vector<Real> & intnl_old,
+                       const Real  gaE_value,
                        std::vector<Real> & intnl) const override;
 
   void setIntnlDerivativesV(const std::vector<Real> & trial_stress_params,

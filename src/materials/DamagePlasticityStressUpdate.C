@@ -35,10 +35,9 @@ DamagePlasticityStressUpdate::validParams()
                                     0.,
                                     "stiff_recovery_factor <= 1. & stiff_recovery_factor >= 0",
                                     "stiffness recovery factor");
-  params.addRangeCheckedParam<Real>(
-      "ft_ep_slope_factor_at_zero_ep",
-      "ft_ep_slope_factor_at_zero_ep <0",
-      "slope of ft vs plastic strain curve at zero plastic strain");
+  params.addRangeCheckedParam<Real>("ft_ep_slope_factor_at_zero_ep",
+                                    "ft_ep_slope_factor_at_zero_ep <0",
+                                    "slope of ft vs plastic strain curve at zero plastic strain");
   params.addRequiredParam<Real>(
       "tensile_damage_at_half_tensile_strength",
       "fraction of the elastic recovery slope in tension at 0.5*ft0 after yielding");
@@ -449,16 +448,17 @@ void
 DamagePlasticityStressUpdate::initialiseVarsV(const std::vector<Real> & trial_stress_params,
                                               const std::vector<Real> & intnl_old,
                                               std::vector<Real> & stress_params,
-                                              Real & /* gaE */,
+                                              Real &  gaE ,
                                               std::vector<Real> & intnl) const
 {
-  setIntnlValuesV(trial_stress_params, stress_params, intnl_old, intnl);
+  setIntnlValuesV(trial_stress_params, stress_params, intnl_old, gaE, intnl);
 }
 
 void
 DamagePlasticityStressUpdate::setIntnlValuesV(const std::vector<Real> & trial_stress_params,
                                               const std::vector<Real> & current_stress_params,
                                               const std::vector<Real> & intnl_old,
+                                              const Real  gaE_value,
                                               std::vector<Real> & intnl) const
 {
   Real I1_trial = trial_stress_params[0] + trial_stress_params[1] + trial_stress_params[2];
@@ -472,12 +472,32 @@ DamagePlasticityStressUpdate::setIntnlValuesV(const std::vector<Real> & trial_st
   Real C2 = -(I1_trial / 3. * G * invsqrt2J2_trial - 3. * K * _alfa_p);
   Real C3 = 3. * K * _alfa_p;
 
-  RankTwoTensor dsig = RankTwoTensor(trial_stress_params[0] - current_stress_params[0],
-                                     trial_stress_params[1] - current_stress_params[1],
-                                     trial_stress_params[2] - current_stress_params[2],
-                                     0.,
-                                     0.,
-                                     0.);
+  Real fcbar;
+  fcbar = fbar(_fc0, _ac, 1. - _dc_bc, intnl_old[1]);
+
+  Real norm_s = std::sqrt(2. * J2_trial);
+
+  Real beta_bar =
+  beta(intnl_old) * (trial_stress_params[2] < 0. ? 0. : 1.0);
+
+  Real gamma_num =
+  _alfa * I1_trial + std::sqrt(3. / 2) * norm_s - beta_bar * trial_stress_params[2] -
+  (1 - _alfa) * fcbar;
+
+  Real gamma_den =
+  9 * K * _alfa_p * _alfa + std::sqrt(6.) * G +
+  beta_bar * ((2 * G / norm_s) * (trial_stress_params[2] - I1_trial / 3.)) +
+  3 * K * _alfa_p;
+
+  Real gamma = gamma_num/gamma_den;
+
+  RankTwoTensor dsig =
+  RankTwoTensor(trial_stress_params[0] - current_stress_params[0],
+                trial_stress_params[1] - current_stress_params[1],
+                trial_stress_params[2] - current_stress_params[2],
+                0.,
+                0.,
+                0.);
   RankTwoTensor fac = J2_trial < _f_tol ? C3 * RankTwoTensor(1., 1., 1., 0., 0., 0.)
                                         : RankTwoTensor(C1 * trial_stress_params[0] - C2,
                                                         C1 * trial_stress_params[1] - C2,
@@ -487,11 +507,14 @@ DamagePlasticityStressUpdate::setIntnlValuesV(const std::vector<Real> & trial_st
                                                         0.);
 
   Real lam = dsig.L2norm() / fac.L2norm();
+
+  // if (_qp==1) std::cout<<"lam:"<<lam<<"gamma:"<<gamma<<"K:"<<K<<"G:"<<G<<std::endl;
+
   std::vector<Real> h(2);
   hardPotential(current_stress_params, intnl_old, h);
 
-  intnl[0] = intnl_old[0] + lam * h[0];
-  intnl[1] = intnl_old[1] + lam * h[1];
+  intnl[0] = intnl_old[0] + (gaE_value/_En) * h[0];
+  intnl[1] = intnl_old[1] + (gaE_value/_En) * h[1];
 }
 
 void
