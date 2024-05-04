@@ -35,9 +35,11 @@ DamagePlasticityStressUpdate::validParams()
                                     0.,
                                     "stiff_recovery_factor <= 1. & stiff_recovery_factor >= 0",
                                     "stiffness recovery factor");
-  params.addRangeCheckedParam<Real>("ft_ep_slope_factor_at_zero_ep",
-                                    "ft_ep_slope_factor_at_zero_ep <0",
-                                    "slope of ft vs plastic strain curve at zero plastic strain");
+  params.addRangeCheckedParam<Real>(
+      "ft_ep_slope_factor_at_zero_ep",
+      "ft_ep_slope_factor_at_zero_ep <= 1 & ft_ep_slope_factor_at_zero_ep >= 0",
+      "slope of ft vs plastic strain curve at zero plastic strain");
+
   params.addRequiredParam<Real>(
       "tensile_damage_at_half_tensile_strength",
       "fraction of the elastic recovery slope in tension at 0.5*ft0 after yielding");
@@ -47,11 +49,6 @@ DamagePlasticityStressUpdate::validParams()
   params.addRangeCheckedParam<Real>("fracture_energy_in_tension",
                                     "fracture_energy_in_tension >= 0",
                                     "Fracture energy of concrete in uniaxial tension");
-  params.addRangeCheckedParam<Real>(
-      "area_under_stress_ep",
-      "area_under_stress_ep >= 0",
-      "Area under the stress and plastic strain in  uniaxial tension");
-
   params.addRangeCheckedParam<Real>("yield_strength_in_compression",
                                     "yield_strength_in_compression >= 0",
                                     "Absolute yield compressice strength");
@@ -86,12 +83,10 @@ DamagePlasticityStressUpdate::DamagePlasticityStressUpdate(const InputParameters
     _alfa_p(getParam<Real>("dilatancy_factor")),
     _s0(getParam<Real>("stiff_recovery_factor")),
 
-    _dstress_dep(getParam<Real>("ft_ep_slope_factor_at_zero_ep")),
+    _Chi(getParam<Real>("ft_ep_slope_factor_at_zero_ep")),
     _Dt(getParam<Real>("tensile_damage_at_half_tensile_strength")),
     _ft(getParam<Real>("yield_strength_in_tension")),
     _FEt(getParam<Real>("fracture_energy_in_tension")),
-    _area_S_ep(getParam<Real>("area_under_stress_ep")),
-
     _fyc(getParam<Real>("yield_strength_in_compression")),
     _Dc(getParam<Real>("compressive_damage_at_max_compressive_strength")),
     _fc(getParam<Real>("maximum_strength_in_compression")),
@@ -99,7 +94,7 @@ DamagePlasticityStressUpdate::DamagePlasticityStressUpdate(const InputParameters
 
     _ft0(_ft),
     _fc0(_fyc),
-    _at(std::sqrt(9. / 4. + (2 * _area_S_ep * _dstress_dep) / (_ft0 * _ft0)) - 0.5),
+    _at(1.5 * std::sqrt(1 - _Chi) - 0.5),
     _ac((2. * (_fc / _fyc) - 1. + 2. * std::sqrt(Utility::pow<2>(_fc / _fyc) - _fc / _fyc))),
     _zt((1. + _at) / _at),
     _zc((1. + _ac) / _ac),
@@ -398,6 +393,9 @@ DamagePlasticityStressUpdate::hardPotential(const std::vector<Real> & stress_par
   flowPotential(stress_params, intnl, r);
   h[0] = wf * ft / _gt[_qp] * r[2];
   h[1] = -(1. - wf) * fc / _gc[_qp] * r[0];
+// if (_qp == 1)
+//     std::cout << "wf: " << wf << ", ft: " << ft << ", _at: " << _at << ", gt: " << _gt[_qp]
+//               << ", intnl: " << intnl[0] << ", h: " << h[0] << std::endl;
 }
 
 void
@@ -448,7 +446,7 @@ void
 DamagePlasticityStressUpdate::initialiseVarsV(const std::vector<Real> & trial_stress_params,
                                               const std::vector<Real> & intnl_old,
                                               std::vector<Real> & stress_params,
-                                              Real &  gaE ,
+                                              Real & gaE,
                                               std::vector<Real> & intnl) const
 {
   setIntnlValuesV(trial_stress_params, stress_params, intnl_old, gaE, intnl);
@@ -458,7 +456,7 @@ void
 DamagePlasticityStressUpdate::setIntnlValuesV(const std::vector<Real> & trial_stress_params,
                                               const std::vector<Real> & current_stress_params,
                                               const std::vector<Real> & intnl_old,
-                                              const Real  gaE_value,
+                                              const Real gaE_value,
                                               std::vector<Real> & intnl) const
 {
   Real I1_trial = trial_stress_params[0] + trial_stress_params[1] + trial_stress_params[2];
@@ -477,27 +475,23 @@ DamagePlasticityStressUpdate::setIntnlValuesV(const std::vector<Real> & trial_st
 
   Real norm_s = std::sqrt(2. * J2_trial);
 
-  Real beta_bar =
-  beta(intnl_old) * (trial_stress_params[2] < 0. ? 0. : 1.0);
+  Real beta_bar = beta(intnl_old) * (trial_stress_params[2] < 0. ? 0. : 1.0);
 
-  Real gamma_num =
-  _alfa * I1_trial + std::sqrt(3. / 2) * norm_s - beta_bar * trial_stress_params[2] -
-  (1 - _alfa) * fcbar;
+  Real gamma_num = _alfa * I1_trial + std::sqrt(3. / 2) * norm_s -
+                   beta_bar * trial_stress_params[2] - (1 - _alfa) * fcbar;
 
-  Real gamma_den =
-  9 * K * _alfa_p * _alfa + std::sqrt(6.) * G +
-  beta_bar * ((2 * G / norm_s) * (trial_stress_params[2] - I1_trial / 3.)) +
-  3 * K * _alfa_p;
+  Real gamma_den = 9 * K * _alfa_p * _alfa + std::sqrt(6.) * G +
+                   beta_bar * ((2 * G / norm_s) * (trial_stress_params[2] - I1_trial / 3.)) +
+                   3 * K * _alfa_p;
 
-  Real gamma = gamma_num/gamma_den;
+  Real gamma = gamma_num / gamma_den;
 
-  RankTwoTensor dsig =
-  RankTwoTensor(trial_stress_params[0] - current_stress_params[0],
-                trial_stress_params[1] - current_stress_params[1],
-                trial_stress_params[2] - current_stress_params[2],
-                0.,
-                0.,
-                0.);
+  RankTwoTensor dsig = RankTwoTensor(trial_stress_params[0] - current_stress_params[0],
+                                     trial_stress_params[1] - current_stress_params[1],
+                                     trial_stress_params[2] - current_stress_params[2],
+                                     0.,
+                                     0.,
+                                     0.);
   RankTwoTensor fac = J2_trial < _f_tol ? C3 * RankTwoTensor(1., 1., 1., 0., 0., 0.)
                                         : RankTwoTensor(C1 * trial_stress_params[0] - C2,
                                                         C1 * trial_stress_params[1] - C2,
@@ -506,15 +500,17 @@ DamagePlasticityStressUpdate::setIntnlValuesV(const std::vector<Real> & trial_st
                                                         0.,
                                                         0.);
 
-  Real lam = dsig.L2norm() / fac.L2norm();
+  // Real lam = dsig.L2norm() / fac.L2norm();
+
+  Real lam = gaE_value / _En;
 
   // if (_qp==1) std::cout<<"lam:"<<lam<<"gamma:"<<gamma<<"K:"<<K<<"G:"<<G<<std::endl;
 
   std::vector<Real> h(2);
   hardPotential(current_stress_params, intnl_old, h);
 
-  intnl[0] = intnl_old[0] + (gaE_value/_En) * h[0];
-  intnl[1] = intnl_old[1] + (gaE_value/_En) * h[1];
+  intnl[0] = intnl_old[0] + lam * h[0];
+  intnl[1] = intnl_old[1] + lam * h[1];
 }
 
 void
