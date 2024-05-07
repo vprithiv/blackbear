@@ -339,34 +339,73 @@ DamagePlasticityStressUpdate::dflowPotential_dstress(
   RankTwoTensor d_sqrt_2J2;
   RankFourTensor dfp;
   Real pre;
+  RankTwoTensor d2J2_dsigi_dsigj =
+      RankTwoTensor(2. / 3., 2. / 3., 2. / 3., -1. / 3., -1. / 3., -1. / 3.);
+  std::vector<Real> dJ2_dsigi(3);
+  for (unsigned i = 0; i < 3; ++i)
+    dJ2_dsigi[i] =
+        (2 * stress_params[i] - stress_params[(i + 1) % 3] - stress_params[(i + 2) % 3]) / 3;
+
   if (J2 == 0)
   {
-    d_sqrt_2J2 = RankTwoTensor();
-    dfp = RankFourTensor();
-    pre = 0;
+    for (unsigned i = 0; i < 3; ++i)
+      for (unsigned j = 0; j < 3; ++j)
+        dr_dstress[i][j] = 0.0;
+
   }
   else
   {
-    d_sqrt_2J2 = 0.5 * std::sqrt(2.0 / J2) * dII;
-    dfp = 0.5 * std::sqrt(2.0 / J2) *
-          RankTwoTensor(stress_params[0], stress_params[1], stress_params[2], 0, 0, 0)
-              .d2secondInvariant();
-    pre = -0.25 * std::sqrt(2.0) * std::pow(J2, -1.5);
+    for (unsigned i = 0; i < 3; ++i)
+      for (unsigned j = 0; j < 3; ++j)
+        dr_dstress[i][j] = 0.5 * (std::sqrt(2.0 / J2) * d2J2_dsigi_dsigj(i, j) -
+                            (1 / std::sqrt(2)) * std::pow(J2, -1.5) * dJ2_dsigi[i]*dJ2_dsigi[j]);
   }
 
-  for (unsigned i = 0; i < 3; ++i)
-    for (unsigned j = 0; j < 3; ++j)
-      for (unsigned k = 0; k < 3; ++k)
-        for (unsigned l = 0; l < 3; ++l)
-          dfp(i, j, k, l) += pre * dII(i, j) * dII(k, l);
+  // if (J2 == 0)
+  // {
+  //   d_sqrt_2J2 = RankTwoTensor();
+  //   dfp = RankFourTensor();
+  //   pre = 0;
+  // }
+  // else
+  // {
+  //   d_sqrt_2J2 = 0.5 * std::sqrt(2.0 / J2) * dII;
+  //   dfp = 0.5 * std::sqrt(2.0 / J2) *
+  //         RankTwoTensor(stress_params[0], stress_params[1], stress_params[2], 0, 0, 0)
+  //             .d2secondInvariant();
+  //   pre = -0.25 * std::sqrt(2.0) * std::pow(J2, -1.5);
+  // }
 
-  for (unsigned i = 0; i < _num_sp; ++i)
-    for (unsigned j = 0; j < (i + 1); ++j)
-    {
-      dr_dstress[i][i] = J2 < _f_tol ? 0. : dfp(i, i, j, j);
-      if (i != j)
-        dr_dstress[j][i] = dr_dstress[i][j];
-    }
+  // for (unsigned i = 0; i < 3; ++i)
+  //   for (unsigned j = 0; j < 3; ++j)
+  //     for (unsigned k = 0; k < 3; ++k)
+  //       for (unsigned l = 0; l < 3; ++l)
+  //         dfp(i, j, k, l) += pre * dII(i, j) * dII(k, l);
+
+  // for (unsigned i = 0; i < _num_sp; ++i)
+  //   for (unsigned j = 0; j < (i + 1); ++j)
+  //   {
+  //     dr_dstress[i][i] = J2 < _f_tol ? 0. : dfp(i, i, j, j);
+  //     if (i != j)
+  //       dr_dstress[j][i] = dr_dstress[i][j];
+  //   }
+
+  // std::cout << "Stress params: " << stress_params[0] << " " << stress_params[1] << " "
+  //           << stress_params[2] << std::endl;
+  // std::cout << std::endl;
+
+  // for (int i = 0; i < 3; i++)
+  // std::cout<<"dJ2_dsigi:" <<dJ2_dsigi[i]<<std::endl;
+
+  // for (int i = 0; i < 3; i++)
+  // {
+  //   for (int j = 0; j < 3; j++)
+  //   {
+  //     std::cout << dr_dstress[i][j] << " ";
+  //     // std::cout << d2J2_dsigi_dsigj(i,j) << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
 }
 
 void
@@ -393,9 +432,9 @@ DamagePlasticityStressUpdate::hardPotential(const std::vector<Real> & stress_par
   flowPotential(stress_params, intnl, r);
   h[0] = wf * ft / _gt[_qp] * r[2];
   h[1] = -(1. - wf) * fc / _gc[_qp] * r[0];
-// if (_qp == 1)
-//     std::cout << "wf: " << wf << ", ft: " << ft << ", _at: " << _at << ", gt: " << _gt[_qp]
-//               << ", intnl: " << intnl[0] << ", h: " << h[0] << std::endl;
+  // if (_qp == 1)
+  //     std::cout << "wf: " << wf << ", ft: " << ft << ", _at: " << _at << ", gt: " << _gt[_qp]
+  //               << ", intnl: " << intnl[0] << ", h: " << h[0] << std::endl;
 }
 
 void
@@ -459,32 +498,67 @@ DamagePlasticityStressUpdate::setIntnlValuesV(const std::vector<Real> & trial_st
                                               const Real gaE_value,
                                               std::vector<Real> & intnl) const
 {
+  RankTwoTensor sigma_trial = RankTwoTensor(
+      trial_stress_params[0], trial_stress_params[1], trial_stress_params[2], 0, 0, 0);
   Real I1_trial = trial_stress_params[0] + trial_stress_params[1] + trial_stress_params[2];
-  Real J2_trial =
-      RankTwoTensor(trial_stress_params[0], trial_stress_params[1], trial_stress_params[2], 0, 0, 0)
-          .secondInvariant();
-  Real invsqrt2J2_trial = 1. / std::sqrt(2. * J2_trial);
+  RankTwoTensor Identity_tensor = RankTwoTensor(1, 1, 1, 0, 0, 0);
+  RankTwoTensor sigmadev_trial = sigma_trial - (I1_trial / 3.) * Identity_tensor;
+  Real norm_sigmadev_trial = sigmadev_trial.L2norm();
+
   Real G = 0.5 * (_Eij[0][0] - _Eij[0][1]); // Lame's mu
   Real K = _Eij[0][1] + 2. * G / 3.;        // Bulk modulus
-  Real C1 = (2. * G * invsqrt2J2_trial);
-  Real C2 = -(I1_trial / 3. * G * invsqrt2J2_trial - 3. * K * _alfa_p);
   Real C3 = 3. * K * _alfa_p;
 
-  Real fcbar;
-  fcbar = fbar(_fc0, _ac, 1. - _dc_bc, intnl_old[1]);
+  RankTwoTensor denominator_tensor =
+      (2 * G / norm_sigmadev_trial) * sigmadev_trial + C3 * Identity_tensor;
 
-  Real norm_s = std::sqrt(2. * J2_trial);
+  // std::cout << "sigma_trial: " << std::endl;
+  // for (int i = 0; i < 3; i++)
+  // {
+  //   for (int j = 0; j < 3; j++)
+  //   {
+  //     std::cout << sigma_trial(i, j) << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
 
-  Real beta_bar = beta(intnl_old) * (trial_stress_params[2] < 0. ? 0. : 1.0);
+  // std::cout << "I1_trial: " << I1_trial << std::endl;
 
-  Real gamma_num = _alfa * I1_trial + std::sqrt(3. / 2) * norm_s -
-                   beta_bar * trial_stress_params[2] - (1 - _alfa) * fcbar;
+  // std::cout << "sigmadev_trial: " << std::endl;
+  // for (int i = 0; i < 3; i++)
+  // {
+  //   for (int j = 0; j < 3; j++)
+  //   {
+  //     std::cout << sigmadev_trial(i, j) << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
 
-  Real gamma_den = 9 * K * _alfa_p * _alfa + std::sqrt(6.) * G +
-                   beta_bar * ((2 * G / norm_s) * (trial_stress_params[2] - I1_trial / 3.)) +
-                   3 * K * _alfa_p;
+  // std::cout << "norm_sigmadev_trial: " << norm_sigmadev_trial << std::endl;
 
-  Real gamma = gamma_num / gamma_den;
+  // Real J2_trial =
+  //     RankTwoTensor(trial_stress_params[0], trial_stress_params[1], trial_stress_params[2], 0, 0, 0)
+  //         .secondInvariant();
+  // Real norm_s = std::sqrt(2. * J2_trial);
+
+  // Real invsqrt2J2_trial = 1. / std::sqrt(2. * J2_trial);
+
+  // Real C1 = (2. * G * invsqrt2J2_trial);
+  // Real C2 = -(I1_trial / 3. * G * invsqrt2J2_trial - 3. * K * _alfa_p);
+
+  // Real fcbar;
+  // fcbar = fbar(_fc0, _ac, 1. - _dc_bc, intnl_old[1]);
+
+  // Real beta_bar = beta(intnl_old) * (trial_stress_params[2] < 0. ? 0. : 1.0);
+
+  // Real gamma_num = _alfa * I1_trial + std::sqrt(3. / 2) * norm_s -
+  //                  beta_bar * trial_stress_params[2] - (1 - _alfa) * fcbar;
+
+  // Real gamma_den = 9 * K * _alfa_p * _alfa + std::sqrt(6.) * G +
+  //                  beta_bar * ((2 * G / norm_s) * (trial_stress_params[2] - I1_trial / 3.)) +
+  //                  3 * K * _alfa_p;
+
+  // Real gamma = gamma_num / gamma_den;
 
   RankTwoTensor dsig = RankTwoTensor(trial_stress_params[0] - current_stress_params[0],
                                      trial_stress_params[1] - current_stress_params[1],
@@ -492,19 +566,19 @@ DamagePlasticityStressUpdate::setIntnlValuesV(const std::vector<Real> & trial_st
                                      0.,
                                      0.,
                                      0.);
-  RankTwoTensor fac = J2_trial < _f_tol ? C3 * RankTwoTensor(1., 1., 1., 0., 0., 0.)
-                                        : RankTwoTensor(C1 * trial_stress_params[0] - C2,
-                                                        C1 * trial_stress_params[1] - C2,
-                                                        C1 * trial_stress_params[2] - C2,
-                                                        0.,
-                                                        0.,
-                                                        0.);
+  // RankTwoTensor fac = J2_trial < _f_tol ? C3 * RankTwoTensor(1., 1., 1., 0., 0., 0.)
+  //                                       : RankTwoTensor(C1 * trial_stress_params[0] - C2,
+  //                                                       C1 * trial_stress_params[1] - C2,
+  //                                                       C1 * trial_stress_params[2] - C2,
+  //                                                       0.,
+  //                                                       0.,
+  //                                                       0.);
 
-  // Real lam = dsig.L2norm() / fac.L2norm();
+  Real lam = dsig.L2norm() / denominator_tensor.L2norm();
 
-  Real lam = gaE_value / _En;
+  // Real lam = gaE_value / _En;
 
-  // if (_qp==1) std::cout<<"lam:"<<lam<<"gamma:"<<gamma<<"K:"<<K<<"G:"<<G<<std::endl;
+  // std::cout << "lam2:" << lam2 << "lam:" << lam << std::endl;
 
   std::vector<Real> h(2);
   hardPotential(current_stress_params, intnl_old, h);
@@ -519,16 +593,28 @@ DamagePlasticityStressUpdate::setIntnlDerivativesV(const std::vector<Real> & tri
                                                    const std::vector<Real> & intnl,
                                                    std::vector<std::vector<Real>> & dintnl) const
 {
+  RankTwoTensor sigma_trial = RankTwoTensor(
+      trial_stress_params[0], trial_stress_params[1], trial_stress_params[2], 0, 0, 0);
   Real I1_trial = trial_stress_params[0] + trial_stress_params[1] + trial_stress_params[2];
+  RankTwoTensor Identity_tensor = RankTwoTensor(1, 1, 1, 0, 0, 0);
+  RankTwoTensor sigmadev_trial = sigma_trial - (I1_trial / 3.) * Identity_tensor;
+  Real norm_sigmadev_trial = sigmadev_trial.L2norm();
+
+  Real G = 0.5 * (_Eij[0][0] - _Eij[0][1]); // Lame's mu
+  Real K = _Eij[0][1] + 2. * G / 3.;        // Bulk modulus
+  Real C3 = 3. * K * _alfa_p;
+
+  RankTwoTensor denominator_tensor =
+      (2 * G / norm_sigmadev_trial) * sigmadev_trial + C3 * Identity_tensor;
   Real J2_trial =
       RankTwoTensor(trial_stress_params[0], trial_stress_params[1], trial_stress_params[2], 0, 0, 0)
           .secondInvariant();
+  Real norm_s = std::sqrt(2. * J2_trial);
+
   Real invsqrt2J2_trial = 1. / std::sqrt(2. * J2_trial);
-  Real G = 0.5 * (_Eij[0][0] - _Eij[0][1]); // Lame's mu
-  Real K = _Eij[0][1] + 2. * G / 3.;        // Bulk modulus
+
   Real C1 = (2. * G * invsqrt2J2_trial);
   Real C2 = -(I1_trial / 3. * G * invsqrt2J2_trial - 3. * K * _alfa_p);
-  Real C3 = 3. * K * _alfa_p;
 
   RankTwoTensor dsig = RankTwoTensor(trial_stress_params[0] - current_stress_params[0],
                                      trial_stress_params[1] - current_stress_params[1],
@@ -544,13 +630,13 @@ DamagePlasticityStressUpdate::setIntnlDerivativesV(const std::vector<Real> & tri
                                                         0.,
                                                         0.);
 
-  Real lam = dsig.L2norm() / fac.L2norm();
+  Real lam = dsig.L2norm() / denominator_tensor.L2norm();
 
   std::vector<Real> dlam_dsig(3);
   for (unsigned i = 0; i < _num_sp; ++i)
     dlam_dsig[i] = dsig.L2norm() == 0. ? 0.
                                        : -(trial_stress_params[i] - current_stress_params[i]) /
-                                             (dsig.L2norm() * fac.L2norm());
+                                             (dsig.L2norm() * denominator_tensor.L2norm());
 
   std::vector<Real> h(2);
   hardPotential(current_stress_params, intnl, h);
@@ -584,8 +670,8 @@ DamagePlasticityStressUpdate::fbar(const Real & f0,
   Real sqrt_phi = std::sqrt(phi);
   Real v = sqrt_phi;
   Real u = (1 + a) / a - sqrt_phi / a;
-  Real fbar = f0 * std::pow(u, exponent) * v;
-  return (u > 0) ? fbar : 1.E-6;
+  Real cal_fbar = f0 * std::pow(u, exponent) * v;
+  return (u > 0) ? cal_fbar : 1.E-6;
 }
 
 Real
@@ -601,8 +687,8 @@ DamagePlasticityStressUpdate::dfbar_dkappa(const Real & f0,
   Real u = (1 + a) / a - sqrt_phi / a;
   Real dv_dphi = 1. / (2 * v);
   Real du_dphi = -(1 / (2 * a)) * exponent * std::pow(u, exponent - 1) * (1 / v);
-  Real dfbar_dkappa = f0 * (u * dv_dphi + v * du_dphi) * dphi_dkappa;
-  return (u > 0) ? dfbar_dkappa : 0.;
+  Real cal_dfbar_dkappa = f0 * (u * dv_dphi + v * du_dphi) * dphi_dkappa;
+  return (u > 0) ? cal_dfbar_dkappa : 0.;
 }
 
 Real
@@ -612,8 +698,8 @@ DamagePlasticityStressUpdate::f(const Real & f0, const Real & a, const Real & ka
   Real sqrt_phi = std::sqrt(phi);
   Real v = phi;
   Real u = (1 + a) * sqrt_phi;
-  Real f = (f0 / a) * (u - v);
-  return (u > v) ? f : 0.;
+  Real cal_f = (f0 / a) * (u - v);
+  return (u > v) ? cal_f : 1.E-6;
 }
 
 Real
@@ -626,8 +712,8 @@ DamagePlasticityStressUpdate::df_dkappa(const Real & f0, const Real & a, const R
   Real u = (1 + a) * sqrt_phi;
   Real dv_dphi = 1.;
   Real du_dphi = (1 + a) / (2 * sqrt_phi);
-  Real df_dkappa = (f0 / a) * (du_dphi - dv_dphi) * dphi_dkappa;
-  return (u > v) ? df_dkappa : 0.;
+  Real cal_df_dkappa = (f0 / a) * (du_dphi - dv_dphi) * dphi_dkappa;
+  return (u > v) ? cal_df_dkappa : 0.;
 }
 
 // Real
